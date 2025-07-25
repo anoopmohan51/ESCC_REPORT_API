@@ -5,10 +5,11 @@
 
 const JOB_STATUS = {
   "In Progress": "1",
-  "Forwarded to Accountant": "2", 
-  "Billed and Closed": "-1",
-  "Closed": "-2",
-  "All": "1,2,-1,-2"
+  "Sent To Manager":"2",
+  "Forwarded to Accountant": "-1",
+  "Billed and Closed":"-2",
+  "All": "1,2,-1,-2",
+  "Cancelled":"-3"
 };
 
 module.exports = JOB_STATUS; 

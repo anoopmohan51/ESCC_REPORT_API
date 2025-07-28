@@ -188,7 +188,7 @@ app.post('/jobs/search', authenticateToken, async (req, res) => {
             startDate: startDate ? new Date(startDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : null,
             endDate: endDate ? new Date(endDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : null,
             filterRange: DATE_RANGE_FILTER[filterRange] || null,
-            jobStatus: JOB_STATUS[jobStatus] || null,
+            jobStatus: jobStatus || null, // Keep original jobStatus from request body
             sortBy: SORT_FIELD[sortBy] || null,
             sortDirection: normalizedSortDirection,
             projectManager: projectManager || null,
@@ -237,10 +237,23 @@ app.post('/jobs/search', authenticateToken, async (req, res) => {
             paramCount++;
         }
         
-        if (searchParams.jobStatus && searchParams.jobStatus !== '') {
-            request.input('StrJobStatus', sql.VarChar(50), searchParams.jobStatus);
-            procedureParams.StrJobStatus = searchParams.jobStatus;
-            paramCount++;
+        if (searchParams.jobStatus) {
+            // Convert jobStatus to array if it's not already
+            const statusArray = Array.isArray(searchParams.jobStatus) 
+                ? searchParams.jobStatus 
+                : [searchParams.jobStatus];
+
+            // Map each status to its corresponding value
+            const statusValues = statusArray
+                .map(status => JOB_STATUS[status])
+                .filter(Boolean)
+                .join(',');
+            
+            if (statusValues) {
+                request.input('StrJobStatus', sql.VarChar(50), statusValues);
+                procedureParams.StrJobStatus = statusValues;
+                paramCount++;
+            }
         }
         
         request.input('StrSortBy', sql.Int, searchParams.sortBy);

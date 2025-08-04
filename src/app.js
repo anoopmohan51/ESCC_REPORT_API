@@ -11,6 +11,7 @@ const JOB_STATUS = require('./constants/jobStatus');
 const DATE_RANGE_FILTER = require('./constants/dateRangeFilter');
 const SORT_FIELD = require('./constants/sortField');
 const SORT_DIRECTION = require('./constants/sortDirection');
+const PROJECT_MANAGER_STATUS = require('./constants/projectManagerStatus');
 
 const app = express();
 
@@ -474,6 +475,86 @@ app.post('/login', async (req, res) => {
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Internal server error.' });
+    }
+});
+
+// Get Project Managers API with JWT Authentication
+app.post('/project-managers', authenticateToken, async (req, res) => {
+    const { status } = req.body;
+
+    if (!status || typeof status !== 'string') {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Status must be a string value' 
+        });
+    }
+
+    try {
+        const request = pool.request();
+        
+        // Convert status string to its corresponding numeric value
+        const statusKey = status.toUpperCase();
+        let pmTypeValue = 1; // default to ACTIVE
+
+        if (statusKey === 'ALL') {
+            pmTypeValue = 1; // default to ACTIVE for 'ALL'
+        } else {
+            const numericStatus = PROJECT_MANAGER_STATUS[statusKey];
+            if (numericStatus === undefined) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid status: ${status}`
+                });
+            }
+            pmTypeValue = numericStatus;
+        }
+        request.input('strProjectManagerIDs', sql.VarChar(5), "0");
+        request.input('PMType', sql.Int, pmTypeValue);
+        request.input('USER_ID', sql.VarChar(50), req.user.userId);
+        request.input('ip', sql.VarChar(50),'127.0.0.1');
+        request.input('ReportId',sql.Int,0)
+        // Log procedure parameters
+        console.log('=== Stored Procedure: uspS_getmembersforJobsassignment ===');
+        console.log('Parameters:', JSON.stringify({
+            strProjectManagerIDs: "0",
+            PMType: pmTypeValue,
+            RequestedStatus: status,
+            USER_ID: req.user.userId,
+            ip: '127.0.0.1',
+            ReportId: 0
+        }, null, 2));
+        
+        // Log SQL parameter types for debugging
+        console.log('SQL Parameter Types:', {
+            strProjectManagerIDs: 'VarChar(5)',
+            PMType: 'Int',
+            USER_ID: 'VarChar(50)',
+            ip: 'VarChar(50)',
+            ReportId: 'Int'
+        });
+        
+        const result = await request.execute('uspS_getmembersforJobsassignment');
+        
+        if (result.recordset && result.recordset.length > 0) {
+            res.json({
+                success: true,
+                data: result.recordset,
+                message: 'Project managers retrieved successfully'
+            });
+        } else {
+            res.json({
+                success: false,
+                message: 'No project managers found',
+                data: []
+            });
+        }
+
+    } catch (error) {
+        console.error('Error fetching project managers:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Internal server error while fetching project managers' 
+        });
     }
 });
 

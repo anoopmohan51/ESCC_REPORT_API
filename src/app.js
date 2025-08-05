@@ -558,6 +558,171 @@ app.post('/project-managers', authenticateToken, async (req, res) => {
     }
 });
 
+// List Sites API with JWT Authentication
+app.post('/sites', authenticateToken, async (req, res) => {
+    const { search } = req.body;
+    const { offset = 0, limit = 50 } = req.query;
+
+    try {
+        const request = pool.request();
+        let procedureName;
+        let procedureParams;
+
+        // Common parameters for all procedures
+        const commonParams = {
+            ShowCustSiteOnce: 1,
+            USER_ID: req.user.userId,
+            ip: req.ip || '127.0.0.1',
+            ReportID: 0
+        };
+
+        if (typeof search === 'string' && search.trim() !== '') {
+            const str_phone_number = getPhone(search);
+            
+            if (str_phone_number !== 'No') {
+                // Case 2: Valid phone number - use phone search procedure
+                procedureName = 'SP_CUSTOMER_SITE_SEARCH_PHONEV2_for_report';
+                procedureParams = {
+                    ...commonParams,
+                    SearchField: search.trim(),
+                    strPhoneNo: str_phone_number
+                };
+
+                request.input('ShowCustSiteOnce', sql.Bit, procedureParams.ShowCustSiteOnce);
+                request.input('SearchField', sql.VarChar(100), procedureParams.SearchField);
+                request.input('strPhoneNo', sql.VarChar(50), procedureParams.strPhoneNo);
+                request.input('USER_ID', sql.VarChar(50), procedureParams.USER_ID);
+                request.input('ip', sql.VarChar(50), procedureParams.ip);
+                request.input('ReportID', sql.Int, procedureParams.ReportID);
+            } else {
+                // Case 3: Not a phone number - use simple search procedure
+                procedureName = 'SP_CUSTOMER_SITE_SEARCH_SIMPLEV2_for_report';
+                procedureParams = {
+                    ...commonParams,
+                    SearchField: search.trim()
+                };
+
+                request.input('ShowCustSiteOnce', sql.Bit, procedureParams.ShowCustSiteOnce);
+                request.input('SearchField', sql.VarChar(100), procedureParams.SearchField);
+                request.input('USER_ID', sql.VarChar(50), procedureParams.USER_ID);
+                request.input('ip', sql.VarChar(50), procedureParams.ip);
+                request.input('ReportID', sql.Int, procedureParams.ReportID);
+            }
+        } else {
+            // Case 1: No search term - use list all procedure
+            procedureName = 'SP_LIST_ALL_CUSTOMER_SITEV2_for_report';
+            procedureParams = commonParams;
+
+            request.input('ShowCustSiteOnce', sql.Bit, procedureParams.ShowCustSiteOnce);
+            request.input('USER_ID', sql.VarChar(50), procedureParams.USER_ID);
+            request.input('ip', sql.VarChar(50), procedureParams.ip);
+            request.input('ReportID', sql.Int, procedureParams.ReportID);
+        }
+
+        // Log procedure parameters
+        console.log(`=== Stored Procedure: ${procedureName} ===`);
+        console.log('Parameters:', JSON.stringify(procedureParams, null, 2));
+        
+        // Execute the stored procedure
+        const result = await request.execute(procedureName);
+
+        if (result.recordset && result.recordset.length > 0) {
+            // Filter results if search parameter is provided
+            let filteredData = result.recordset;
+            if (typeof search === 'string' && search.trim() !== '') {
+                const searchLower = search.toLowerCase().trim();
+                filteredData = result.recordset.filter(site => 
+                    Object.values(site).some(value => 
+                        value && value.toString().toLowerCase().includes(searchLower)
+                    )
+                );
+            }
+
+            // Apply pagination
+            const totalCount = filteredData.length;
+            const startIndex = parseInt(offset);
+            const endIndex = startIndex + parseInt(limit);
+            const paginatedData = filteredData.slice(startIndex, endIndex);
+
+            res.json({
+                success: true,
+                data: paginatedData,
+                message: 'Sites retrieved successfully',
+                pagination: {
+                    offset: startIndex,
+                    limit: parseInt(limit),
+                    total: totalCount,
+                    totalPages: Math.ceil(totalCount / limit),
+                    currentPage: Math.floor(startIndex / limit) + 1,
+                    hasNextPage: endIndex < totalCount,
+                    hasPreviousPage: startIndex > 0
+                }
+            });
+        } else {
+            res.json({
+                success: false,
+                message: 'No sites found',
+                data: [],
+                pagination: {
+                    offset: parseInt(offset),
+                    limit: parseInt(limit),
+                    total: 0,
+                    totalPages: 0,
+                    currentPage: 1,
+                    hasNextPage: false,
+                    hasPreviousPage: false
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('Error fetching sites:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error while fetching sites'
+        });
+    }
+});
+
+// Utility function to format phone numbers
+function getPhone(strSubString) {
+    if (!strSubString || typeof strSubString !== 'string') {
+        return 'No';
+    }
+
+    // Remove specified characters
+    strSubString = strSubString
+        .replace(/\(/g, '')
+        .replace(/\-/g, '')
+        .replace(/\)/g, '')
+        .replace(/\s/g, '')
+        .replace(/x/g, '');
+
+    // Check if the remaining string is numeric
+    if (/^\d+$/.test(strSubString)) {
+        // Insert formatting characters at specific positions
+        strSubString = '(' + strSubString;  // Insert at beginning
+        if (strSubString.length >= 4) {
+            strSubString = strSubString.slice(0, 4) + ')' + strSubString.slice(4);
+        }
+        if (strSubString.length >= 5) {
+            strSubString = strSubString.slice(0, 5) + ' ' + strSubString.slice(5);
+        }
+        if (strSubString.length >= 9) {
+            strSubString = strSubString.slice(0, 9) + '-' + strSubString.slice(9);
+        }
+        if (strSubString.length >= 15) {
+            strSubString = strSubString.slice(0, 14) + 'x' + strSubString.slice(14);
+        }
+        if (strSubString.length > 18) {
+            strSubString = strSubString.substring(0, 19);
+        }
+        return strSubString;
+    }
+    
+    return 'No';
+}
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);

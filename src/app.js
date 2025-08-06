@@ -93,8 +93,8 @@ const authenticateToken = (req, res, next) => {
     if (!token) {
         return res.status(401).json({ message: 'Access token required' });
     }
-
-    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
+    
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
         if (err) {
             return res.status(403).json({ message: 'Invalid or expired token' });
         }
@@ -413,7 +413,13 @@ app.post('/login', async (req, res) => {
                         username: username,
                         userWorkEmail: userWorkEmail,
                         ipAddress: userIP
-                    }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
+                    }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+                    const refresh_token = jwt.sign({ 
+                        userId: userId,
+                        username: username,
+                        userWorkEmail: userWorkEmail,
+                        ipAddress: userIP
+                    }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '7d' });
 
                     // Return success response
                     res.json({
@@ -424,7 +430,8 @@ app.post('/login', async (req, res) => {
                             userWorkEmail: userWorkEmail,
                             loginAttempts: loginAttempts || 0
                         },
-                        token
+                        token,
+                        refresh_token
                     });
                 } else {
                     // IP is blocked or other login action error
@@ -474,6 +481,51 @@ app.post('/login', async (req, res) => {
 
     } catch (error) {
         console.error('Login error:', error);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+});
+
+// Refresh Token API
+app.post('/refresh-token', async (req, res) => {
+    const { refresh_token } = req.body;
+
+    if (!refresh_token) {
+        return res.status(400).json({ message: 'Refresh token is required.' });
+    }
+
+    try {
+        // Verify the refresh token
+        const user = jwt.verify(refresh_token, process.env.REFRESH_TOKEN_SECRET);
+
+        // Generate new access token and refresh token
+        const newAccessToken = jwt.sign({ 
+            userId: user.userId,
+            username: user.username,
+            userWorkEmail: user.userWorkEmail,
+            ipAddress: user.ipAddress
+        }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+
+        const newRefreshToken = jwt.sign({ 
+            userId: user.userId,
+            username: user.username,
+            userWorkEmail: user.userWorkEmail,
+            ipAddress: user.ipAddress
+        }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '7d' });
+
+        // Return new tokens
+        res.json({
+            message: 'Tokens refreshed successfully',
+            token: newAccessToken,
+            refresh_token: newRefreshToken
+        });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ message: 'Refresh token has expired. Please login again.' });
+        }
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ message: 'Invalid refresh token.' });
+        }
         res.status(500).json({ message: 'Internal server error.' });
     }
 });

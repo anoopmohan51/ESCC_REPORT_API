@@ -775,6 +775,91 @@ function getPhone(strSubString) {
     return 'No';
 }
 
+// Progress Report API with JWT Authentication
+app.post('/progress-report', authenticateToken, async (req, res) => {
+    const { user_id } = req.body;
+    const { offset = 0, limit = 50 } = req.query;
+
+    // Validate user_id
+    if (!user_id || typeof user_id !== 'number') {
+        return res.status(400).json({
+            success: false,
+            message: 'user_id is required and must be a number'
+        });
+    }
+
+    // Validate pagination parameters
+    const parsedOffset = parseInt(offset);
+    const parsedLimit = parseInt(limit);
+
+    if (isNaN(parsedOffset) || parsedOffset < 0) {
+        return res.status(400).json({
+            success: false,
+            message: 'offset must be a non-negative number'
+        });
+    }
+
+    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+        return res.status(400).json({
+            success: false,
+            message: 'limit must be a positive number'
+        });
+    }
+
+    try {
+        const request = pool.request();
+        request.input('ProjectManager', sql.Int, user_id);
+
+        // Execute the stored procedure
+        const result = await request.execute('uspJobActivityReport');
+
+        if (result.recordset && result.recordset.length > 0) {
+            // Apply pagination to the results
+            const totalCount = result.recordset.length;
+            const startIndex = parsedOffset;
+            const endIndex = startIndex + parsedLimit;
+            const paginatedData = result.recordset.slice(startIndex, endIndex);
+
+            res.json({
+                success: true,
+                data: paginatedData,
+                message: 'Progress report retrieved successfully',
+                pagination: {
+                    offset: parsedOffset,
+                    limit: parsedLimit,
+                    total: totalCount,
+                    totalPages: Math.ceil(totalCount / parsedLimit),
+                    currentPage: Math.floor(parsedOffset / parsedLimit) + 1,
+                    hasNextPage: endIndex < totalCount,
+                    hasPreviousPage: parsedOffset > 0
+                }
+            });
+        } else {
+            res.json({
+                success: false,
+                message: 'No progress report data found',
+                data: [],
+                pagination: {
+                    offset: parsedOffset,
+                    limit: parsedLimit,
+                    total: 0,
+                    totalPages: 0,
+                    currentPage: 1,
+                    hasNextPage: false,
+                    hasPreviousPage: false
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('Error fetching progress report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error while fetching progress report'
+        });
+    }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);

@@ -799,10 +799,10 @@ app.post('/progress-report', authenticateToken, async (req, res) => {
         });
     }
 
-    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+    if (isNaN(parsedLimit) || (parsedLimit <= 0 && parsedLimit !== -1)) {
         return res.status(400).json({
             success: false,
-            message: 'limit must be a positive number'
+            message: 'limit must be a positive number or -1 for all data'
         });
     }
 
@@ -814,26 +814,45 @@ app.post('/progress-report', authenticateToken, async (req, res) => {
         const result = await request.execute('uspJobActivityReport');
 
         if (result.recordset && result.recordset.length > 0) {
-            // Apply pagination to the results
             const totalCount = result.recordset.length;
-            const startIndex = parsedOffset;
-            const endIndex = startIndex + parsedLimit;
-            const paginatedData = result.recordset.slice(startIndex, endIndex);
 
-            res.json({
-                success: true,
-                data: paginatedData,
-                message: 'Progress report retrieved successfully',
-                pagination: {
-                    offset: parsedOffset,
-                    limit: parsedLimit,
-                    total: totalCount,
-                    totalPages: Math.ceil(totalCount / parsedLimit),
-                    currentPage: Math.floor(parsedOffset / parsedLimit) + 1,
-                    hasNextPage: endIndex < totalCount,
-                    hasPreviousPage: parsedOffset > 0
-                }
-            });
+            // Handle special case for limit = -1 (return all data)
+            if (parsedLimit === -1) {
+                res.json({
+                    success: true,
+                    data: result.recordset,
+                    message: 'Progress report retrieved successfully',
+                    pagination: {
+                        offset: 0,
+                        limit: -1,
+                        total: totalCount,
+                        totalPages: 1,
+                        currentPage: 1,
+                        hasNextPage: false,
+                        hasPreviousPage: false
+                    }
+                });
+            } else {
+                // Apply pagination to the results
+                const startIndex = parsedOffset;
+                const endIndex = startIndex + parsedLimit;
+                const paginatedData = result.recordset.slice(startIndex, endIndex);
+
+                res.json({
+                    success: true,
+                    data: paginatedData,
+                    message: 'Progress report retrieved successfully',
+                    pagination: {
+                        offset: parsedOffset,
+                        limit: parsedLimit,
+                        total: totalCount,
+                        totalPages: Math.ceil(totalCount / parsedLimit),
+                        currentPage: Math.floor(parsedOffset / parsedLimit) + 1,
+                        hasNextPage: endIndex < totalCount,
+                        hasPreviousPage: parsedOffset > 0
+                    }
+                });
+            }
         } else {
             res.json({
                 success: false,
